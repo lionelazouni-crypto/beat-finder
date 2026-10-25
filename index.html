@@ -1,0 +1,887 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Beat Finder</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Mise en page : une colonne étroite façon console de studio, trois étapes numérotées (enregistrer, chercher, choisir). */
+:root {
+  --bg: #eef1f0;
+  --surface: #ffffff;
+  --surface-2: #e3e9e7;
+  --ink: #14201f;
+  --ink-soft: #566663;
+  --line: #cdd6d3;
+  --accent: #0e7c6b;
+  --accent-ink: #ffffff;
+  --signal: #c77d0a;
+  --good: #1f7a4d;
+  --bad: #a4452c;
+  --font-display: "Bricolage Grotesque", "Trebuchet MS", sans-serif;
+  --font-body: "Instrument Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1a1a; --surface: #172524; --surface-2: #213331; --ink: #e8f0ee; --ink-soft: #94a8a4;
+    --line: #2c4240; --accent: #4fd1b8; --accent-ink: #062622; --signal: #f0b24a; --good: #5fd49a; --bad: #f08a6c;
+  }
+}
+* { box-sizing: border-box; }
+html { color-scheme: light dark; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 var(--font-body);
+  padding: 24px max(16px, env(safe-area-inset-left, 0px)) 64px max(16px, env(safe-area-inset-right, 0px));
+}
+main { max-width: 720px; margin: 0 auto; display: grid; gap: 20px; }
+h1, h2, h3 { font-family: var(--font-display); line-height: 1.15; margin: 0; text-wrap: balance; }
+h1 { font-size: clamp(2rem, 6vw, 2.8rem); letter-spacing: -0.02em; }
+h2 { font-size: 1.35rem; }
+p { margin: 0; }
+.lead { color: var(--ink-soft); max-width: 56ch; }
+section { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px; display: grid; gap: 14px; }
+section > header { display: flex; align-items: baseline; gap: 12px; }
+.step { font: 500 0.8rem var(--font-mono); color: var(--accent); letter-spacing: 0.08em; text-transform: uppercase; }
+.btn {
+  font: 600 1rem var(--font-body); border: 1px solid transparent; border-radius: 10px; padding: 12px 18px; cursor: pointer;
+  background: var(--accent); color: var(--accent-ink); display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  text-decoration: none; min-height: 44px;
+}
+.btn:disabled { opacity: 0.5; cursor: progress; }
+.btn.ghost { background: transparent; color: var(--ink); border-color: var(--line); padding: 8px 14px; min-height: 40px; font-size: 0.92rem; }
+.btn:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--signal); outline-offset: 2px; }
+#rec { align-self: start; }
+#rec .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--accent-ink); }
+#rec[data-on="1"] { background: var(--bad); color: #fff; }
+#rec[data-on="1"] .dot { background: #fff; animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { #rec[data-on="1"] .dot { animation: none; } }
+.meter { height: 10px; background: var(--surface-2); border-radius: 99px; overflow: hidden; }
+#meter-fill { height: 100%; width: 0; background: var(--accent); transition: width 80ms linear; }
+#clock { font: 500 0.85rem var(--font-mono); color: var(--ink-soft); min-height: 1.3em; }
+.status { color: var(--ink-soft); min-height: 1.4em; }
+.status[data-kind="error"] { color: var(--bad); }
+.status[data-kind="ok"] { color: var(--good); }
+.status.small { font-size: 0.9rem; }
+audio { width: 100%; }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; align-items: end; }
+label { display: grid; gap: 6px; font-size: 0.85rem; color: var(--ink-soft); font-weight: 500; }
+select, input {
+  font: 500 1rem var(--font-body); color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 10px; padding: 10px 12px; min-height: 44px; width: 100%;
+}
+input[type="number"] { font-family: var(--font-mono); }
+.hint { font-size: 0.9rem; color: var(--ink-soft); }
+#results { display: grid; gap: 12px; }
+.card { border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 10px; background: var(--bg); min-width: 0; }
+.card.best { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; background: var(--surface); }
+.card-top { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; gap: 12px; align-items: start; }
+.thumb { width: 96px; height: 54px; object-fit: cover; border-radius: 6px; background: var(--surface-2); }
+.info { min-width: 0; }
+.title { font-size: 1rem; overflow-wrap: anywhere; }
+.channel { font-size: 0.85rem; color: var(--ink-soft); }
+.badge { display: inline-block; font: 600 0.72rem var(--font-body); letter-spacing: 0.06em; text-transform: uppercase; background: var(--accent); color: var(--accent-ink); border-radius: 6px; padding: 2px 8px; margin-bottom: 4px; }
+.score { text-align: right; display: grid; }
+.score strong { font: 700 1.5rem var(--font-display); }
+.score span { font-size: 0.75rem; color: var(--ink-soft); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font: 500 0.78rem var(--font-mono); border: 1px solid var(--line); border-radius: 99px; padding: 3px 10px; color: var(--ink); }
+.chip.muted { color: var(--ink-soft); border-style: dashed; }
+.chip.good { color: var(--good); border-color: var(--good); }
+.chip.bad { color: var(--bad); border-color: var(--bad); }
+.chip.heard { background: var(--surface-2); }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.player iframe { width: 100%; aspect-ratio: 16 / 9; border: 0; border-radius: 8px; max-width: 100%; }
+@media (max-width: 460px) {
+  .card-top { grid-template-columns: 72px minmax(0, 1fr); }
+  .thumb { width: 72px; height: 41px; }
+  .score { grid-column: 1 / -1; text-align: left; grid-auto-flow: column; justify-content: start; align-items: baseline; gap: 8px; }
+}
+</style>
+</head>
+<body>
+<main>
+  <header style="display:grid;gap:10px">
+    <h1>Beat Finder</h1>
+    <p class="lead">Chante une partie de ta musique. L'app trouve ta tonalité et ton tempo, cherche des beats sur YouTube et classe ceux qui vont avec.</p>
+  </header>
+
+  <section aria-labelledby="h-rec">
+    <header><span class="step">Étape 1</span><h2 id="h-rec">Chante ta mélodie</h2></header>
+    <button id="rec" class="btn" type="button" data-on=""><span class="dot"></span><span id="rec-label">Enregistrer ma mélodie</span></button>
+    <div class="meter" aria-hidden="true"><div id="meter-fill"></div></div>
+    <div id="clock"></div>
+    <p id="rec-status" class="status" role="status"></p>
+    <audio id="replay" controls hidden></audio>
+    <div id="melody-fields" class="fields">
+      <label for="tonic">Tonalité
+        <select id="tonic"></select>
+      </label>
+      <label for="mode">Mode
+        <select id="mode"><option value="minor">mineur</option><option value="major">majeur</option></select>
+      </label>
+      <label for="bpm">Tempo (BPM)
+        <input id="bpm" type="number" min="50" max="220" step="1" value="90" inputmode="numeric">
+      </label>
+      <button id="tap" class="btn ghost" type="button">Taper le tempo</button>
+    </div>
+    <p id="alt" class="hint"></p>
+    <p class="hint">Le tempo d'une voix seule est approximatif : corrige-le ou tape-le du doigt en suivant ton rythme.</p>
+  </section>
+
+  <section id="search-section" aria-labelledby="h-search">
+    <header><span class="step">Étape 2</span><h2 id="h-search">Cherche des beats</h2></header>
+    <label for="apikey">Clé API YouTube (enregistrée sur cet appareil)
+      <input id="apikey" type="password" placeholder="AIza…" autocomplete="off" spellcheck="false">
+    </label>
+    <label for="style">Style (facultatif)
+      <input id="style" type="text" placeholder="afrobeat, drill, trap, amapiano…" autocomplete="off">
+    </label>
+    <button id="search" class="btn" type="button">Chercher sur YouTube</button>
+    <p id="search-status" class="status" role="status"></p>
+  </section>
+
+  <section id="results-section" aria-labelledby="h-res" hidden>
+    <header><span class="step">Étape 3</span><h2 id="h-res">Les beats qui vont avec</h2></header>
+    <p class="hint">« Vérifier à l'écoute » joue le beat sur tes haut-parleurs, l'écoute avec le micro pendant 14 secondes et corrige la tonalité et le tempo. Utilise-le sans casque, dans un endroit calme.</p>
+    <button id="verify-top" class="btn" type="button">Vérifier les 5 meilleurs à l'écoute</button>
+    <p id="batch-status" class="status" role="status"></p>
+    <div id="batch-player" class="player" hidden></div>
+    <div id="results"></div>
+  </section>
+</main>
+<script>/* Analyse audio : tonalité, tempo, compatibilité. Aucune dépendance. */
+(function (root) {
+  'use strict';
+
+  var PC = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  var PROFILE = {
+    major: [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88],
+    minor: [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]
+  };
+
+  function mod12(n) { return ((n % 12) + 12) % 12; }
+
+  function pearson(a, b) {
+    var n = a.length, ma = 0, mb = 0, i;
+    for (i = 0; i < n; i++) { ma += a[i]; mb += b[i]; }
+    ma /= n; mb /= n;
+    var num = 0, da = 0, db = 0;
+    for (i = 0; i < n; i++) {
+      var x = a[i] - ma, y = b[i] - mb;
+      num += x * y; da += x * x; db += y * y;
+    }
+    return da > 0 && db > 0 ? num / Math.sqrt(da * db) : 0;
+  }
+
+  function keyLabel(tonic, mode) { return PC[tonic] + (mode === 'minor' ? 'm' : ''); }
+  function keyName(tonic, mode) { return PC[tonic] + ' ' + (mode === 'minor' ? 'minor' : 'major'); }
+
+  /* Histogramme de 12 classes de hauteur -> meilleure tonalité (Krumhansl-Schmuckler). */
+  function estimateKey(hist) {
+    var total = 0, i, t;
+    for (i = 0; i < 12; i++) total += hist[i];
+    if (total <= 0) return null;
+    var res = [];
+    for (t = 0; t < 12; t++) {
+      var rot = [];
+      for (i = 0; i < 12; i++) rot.push(hist[(i + t) % 12]);
+      res.push({ tonic: t, mode: 'major', score: pearson(rot, PROFILE.major) });
+      res.push({ tonic: t, mode: 'minor', score: pearson(rot, PROFILE.minor) });
+    }
+    res.sort(function (a, b) { return b.score - a.score; });
+    return { tonic: res[0].tonic, mode: res[0].mode, score: res[0].score, alternatives: res.slice(1, 4) };
+  }
+
+  function downsample(x, sr, target) {
+    var f = Math.max(1, Math.round(sr / target));
+    if (f === 1) return { x: x, sr: sr };
+    var n = Math.floor(x.length / f), y = new Float32Array(n);
+    for (var i = 0; i < n; i++) {
+      var s = 0;
+      for (var j = 0; j < f; j++) s += x[i * f + j];
+      y[i] = s / f;
+    }
+    return { x: y, sr: sr / f };
+  }
+
+  function fft(re, im) {
+    var n = re.length, i, j = 0, k, t;
+    for (i = 0; i < n - 1; i++) {
+      if (i < j) { t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+      k = n >> 1;
+      while (k <= j) { j -= k; k >>= 1; }
+      j += k;
+    }
+    for (var len = 2; len <= n; len <<= 1) {
+      var ang = -2 * Math.PI / len, wr = Math.cos(ang), wi = Math.sin(ang), half = len >> 1;
+      for (i = 0; i < n; i += len) {
+        var cr = 1, ci = 0;
+        for (k = 0; k < half; k++) {
+          var a = i + k, b = a + half;
+          var tr = re[b] * cr - im[b] * ci, ti = re[b] * ci + im[b] * cr;
+          re[b] = re[a] - tr; im[b] = im[a] - ti;
+          re[a] += tr; im[a] += ti;
+          var ncr = cr * wr - ci * wi;
+          ci = cr * wi + ci * wr; cr = ncr;
+        }
+      }
+    }
+  }
+
+  function hann(n) {
+    var w = new Float64Array(n);
+    for (var i = 0; i < n; i++) w[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (n - 1));
+    return w;
+  }
+
+  /* Tempo à partir d'une enveloppe d'attaques (autocorrélation). */
+  function tempoFromEnv(env, fps, lo, hi) {
+    var n = env.length, i, lag;
+    if (n < fps * 3) return { bpm: 0, strength: 0 };
+    // retire la moyenne locale (~0,6 s)
+    var w = Math.max(3, Math.round(fps * 0.6)), e = new Float64Array(n), acc = 0;
+    var pre = new Float64Array(n + 1);
+    for (i = 0; i < n; i++) pre[i + 1] = pre[i] + env[i];
+    for (i = 0; i < n; i++) {
+      var a = Math.max(0, i - w), b = Math.min(n, i + w + 1);
+      e[i] = Math.max(0, env[i] - (pre[b] - pre[a]) / (b - a));
+    }
+    var mean = 0;
+    for (i = 0; i < n; i++) mean += e[i];
+    mean /= n;
+    for (i = 0; i < n; i++) e[i] -= mean;
+    var ac0 = 0;
+    for (i = 0; i < n; i++) ac0 += e[i] * e[i];
+    if (ac0 <= 0) return { bpm: 0, strength: 0 };
+    var lagMin = Math.max(2, Math.floor(fps * 60 / hi)), lagMax = Math.min(Math.floor(n / 2), Math.ceil(fps * 60 / lo));
+    var ac = new Float64Array(lagMax * 2 + 3);
+    for (lag = 1; lag < ac.length && lag < n; lag++) {
+      var s = 0;
+      for (i = 0; i + lag < n; i++) s += e[i] * e[i + lag];
+      ac[lag] = s / ac0 * (n / (n - lag));
+    }
+    var best = -1, bestLag = 0;
+    for (lag = lagMin; lag <= lagMax; lag++) {
+      var bpm = 60 * fps / lag;
+      var prior = Math.exp(-0.5 * Math.pow(Math.log(bpm / 110) / Math.LN2 / 0.9, 2));
+      var sc = (ac[lag] + 0.5 * (ac[lag * 2] || 0) + 0.25 * (ac[Math.round(lag / 2)] || 0)) * (0.6 + 0.4 * prior);
+      if (sc > best) { best = sc; bestLag = lag; }
+    }
+    if (bestLag <= 0) return { bpm: 0, strength: 0 };
+    var l0 = ac[bestLag - 1], l1 = ac[bestLag], l2 = ac[bestLag + 1], off = 0;
+    var den = l0 - 2 * l1 + l2;
+    if (den < 0) off = 0.5 * (l0 - l2) / den;
+    var refined = bestLag + Math.max(-0.5, Math.min(0.5, off));
+    return { bpm: 60 * fps / refined, strength: Math.max(0, ac[bestLag]) };
+  }
+
+  /* Suivi de hauteur d'une voix (NSDF / McLeod simplifié). */
+  function pitchTrack(x, sr) {
+    var d = downsample(x, sr, 11025), y = d.x, fs = d.sr;
+    var win = 512, hop = 256;
+    var tauMin = Math.max(2, Math.floor(fs / 1000)), tauMax = Math.min(win - 2, Math.floor(fs / 80));
+    var frames = Math.max(0, Math.floor((y.length - win) / hop));
+    var f0 = new Float32Array(frames), rms = new Float32Array(frames), maxRms = 0, fr, tau, i;
+    var nsdf = new Float64Array(tauMax + 2);
+    for (fr = 0; fr < frames; fr++) {
+      var s0 = fr * hop, e = 0;
+      for (i = 0; i < win; i++) e += y[s0 + i] * y[s0 + i];
+      rms[fr] = Math.sqrt(e / win);
+      if (rms[fr] > maxRms) maxRms = rms[fr];
+    }
+    for (fr = 0; fr < frames; fr++) {
+      if (rms[fr] < maxRms * 0.12) continue;
+      var s = fr * hop, gmax = 0;
+      for (tau = tauMin - 1; tau <= tauMax + 1; tau++) {
+        var acf = 0, m = 0;
+        for (i = 0; i < win - tau; i++) {
+          acf += y[s + i] * y[s + i + tau];
+          m += y[s + i] * y[s + i] + y[s + i + tau] * y[s + i + tau];
+        }
+        nsdf[tau] = m > 0 ? 2 * acf / m : 0;
+      }
+      var peaks = [];
+      for (tau = tauMin; tau <= tauMax; tau++) {
+        if (nsdf[tau] > 0.5 && nsdf[tau] > nsdf[tau - 1] && nsdf[tau] >= nsdf[tau + 1]) {
+          peaks.push(tau);
+          if (nsdf[tau] > gmax) gmax = nsdf[tau];
+        }
+      }
+      if (gmax < 0.8) continue;
+      var chosen = -1;
+      for (i = 0; i < peaks.length; i++) {
+        if (nsdf[peaks[i]] >= 0.9 * gmax) { chosen = peaks[i]; break; }
+      }
+      if (chosen < 0) continue;
+      var p0 = nsdf[chosen - 1], p1 = nsdf[chosen], p2 = nsdf[chosen + 1], dd = p0 - 2 * p1 + p2;
+      var shift = dd < 0 ? 0.5 * (p0 - p2) / dd : 0;
+      f0[fr] = fs / (chosen + shift);
+    }
+    return { f0: f0, rms: rms, maxRms: maxRms, hopSec: hop / fs };
+  }
+
+  /* Voix chantée -> tonalité + tempo estimés. */
+  function analyzeVoice(x, sr) {
+    var pt = pitchTrack(x, sr), n = pt.f0.length, i;
+    var hist = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], voiced = 0;
+    var rounded = new Int16Array(n);
+    for (i = 0; i < n; i++) {
+      if (pt.f0[i] > 0) {
+        var midi = 69 + 12 * Math.log(pt.f0[i] / 440) / Math.LN2, r = Math.round(midi);
+        rounded[i] = r;
+        hist[mod12(r)] += pt.rms[i] * (1 - Math.min(0.5, Math.abs(midi - r)));
+        voiced++;
+      }
+    }
+    var env = new Float64Array(n);
+    for (i = 1; i < n - 1; i++) {
+      var flux = Math.max(0, pt.rms[i] - pt.rms[i - 1]) / (pt.maxRms || 1);
+      var pulse = 0;
+      if (rounded[i] && !rounded[i - 1]) pulse = 0.6;
+      else if (rounded[i] && rounded[i - 1] && rounded[i] === rounded[i + 1] && rounded[i] !== rounded[i - 1]) pulse = 0.6;
+      env[i] = flux + pulse;
+    }
+    var tempo = tempoFromEnv(env, 1 / pt.hopSec, 60, 180);
+    return {
+      key: estimateKey(hist),
+      hist: hist,
+      bpm: tempo.bpm,
+      tempoStrength: tempo.strength,
+      voicedRatio: n ? voiced / n : 0,
+      durationSec: x.length / sr
+    };
+  }
+
+  /* Audio captué d'un beat -> tonalité (chroma) + tempo (flux spectral). */
+  function analyzeBeatAudio(x, sr) {
+    var d = downsample(x, sr, 11025), y = d.x, fs = d.sr, i, k, s;
+    var N = 8192, H = 4096, win = hann(N), re = new Float64Array(N), im = new Float64Array(N);
+    var hist = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    var kLo = Math.ceil(65 * N / fs), kHi = Math.floor(1000 * N / fs);
+    for (s = 0; s + N <= y.length; s += H) {
+      for (i = 0; i < N; i++) { re[i] = y[s + i] * win[i]; im[i] = 0; }
+      fft(re, im);
+      for (k = kLo; k <= kHi; k++) {
+        var f = k * fs / N, midi = 69 + 12 * Math.log(f / 440) / Math.LN2, r = Math.round(midi);
+        if (Math.abs(midi - r) > 0.35) continue;
+        hist[mod12(r)] += Math.sqrt(Math.sqrt(re[k] * re[k] + im[k] * im[k]));
+      }
+    }
+    var n2 = 1024, h2 = 256, w2 = hann(n2), re2 = new Float64Array(n2), im2 = new Float64Array(n2);
+    var kMax = Math.floor(2500 * n2 / fs), prev = new Float64Array(kMax + 1), env = [];
+    for (s = 0; s + n2 <= y.length; s += h2) {
+      for (i = 0; i < n2; i++) { re2[i] = y[s + i] * w2[i]; im2[i] = 0; }
+      fft(re2, im2);
+      var flux = 0;
+      for (k = 1; k <= kMax; k++) {
+        var mag = Math.log(1 + 20 * Math.sqrt(re2[k] * re2[k] + im2[k] * im2[k]) / n2 * 8);
+        flux += Math.max(0, mag - prev[k]);
+        prev[k] = mag;
+      }
+      env.push(flux);
+    }
+    var tempo = tempoFromEnv(env, fs / h2, 70, 180);
+    return { key: estimateKey(hist), bpm: tempo.bpm, tempoStrength: tempo.strength };
+  }
+
+  /* Lit la tonalité et le BPM dans le titre / la description d'une vidéo. */
+  function parseMeta(text) {
+    var out = { bpm: 0, key: null };
+    if (!text) return out;
+    var m = /(\d{2,3})\s*-?\s*bpm/i.exec(text) || /bpm\s*[:=\-]?\s*(\d{2,3})/i.exec(text);
+    if (m) {
+      var v = parseInt(m[1], 10);
+      if (v >= 50 && v <= 220) out.bpm = v;
+    }
+    var base = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+    var re = /(?:^|[^A-Za-z0-9#♯♭])([A-G])\s?([#♯b♭]?)\s?([Mm]aj(?:or)?|[Mm]in(?:or)?|m)(?![A-Za-z0-9])/g, km;
+    while ((km = re.exec(text)) !== null) {
+      var tonic = base[km[1]], acc = km[2];
+      if (acc === '#' || acc === '♯') tonic += 1;
+      else if (acc === 'b' || acc === '♭') tonic -= 1;
+      var mode = /^[Mm]aj/.test(km[3]) ? 'major' : 'minor';
+      out.key = { tonic: mod12(tonic), mode: mode };
+      break;
+    }
+    return out;
+  }
+
+  function keyCompat(a, b) {
+    if (!a || !b) return null;
+    if (a.tonic === b.tonic && a.mode === b.mode) return { score: 1, label: 'même tonalité' };
+    var minor = a.mode === 'minor' ? a : b, major = a.mode === 'minor' ? b : a;
+    if (a.mode !== b.mode && mod12(minor.tonic + 3) === major.tonic) return { score: 0.9, label: 'tonalité relative' };
+    if (a.mode === b.mode && (mod12(a.tonic - b.tonic) === 7 || mod12(b.tonic - a.tonic) === 7)) return { score: 0.6, label: 'tonalité voisine (quinte)' };
+    if (a.tonic === b.tonic) return { score: 0.5, label: 'même note, autre mode' };
+    return { score: 0, label: 'tonalité éloignée' };
+  }
+
+  function tempoCompat(a, b) {
+    if (!a || !b) return null;
+    var ratio = b / a, best = 9, label = '', cands = [[1, 'même tempo'], [2, 'double tempo'], [0.5, 'demi-tempo']];
+    for (var i = 0; i < cands.length; i++) {
+      var err = Math.abs(ratio / cands[i][0] - 1);
+      if (err < best) { best = err; label = cands[i][1]; }
+    }
+    var score = Math.max(0, 1 - best / 0.15);
+    return { score: score, label: score > 0 ? label : 'tempo éloigné' };
+  }
+
+  /* melody / beat : {key:{tonic,mode}|null, bpm:number}. Retourne null si le beat est inconnu. */
+  function scoreBeat(melody, beat) {
+    var k = keyCompat(melody.key, beat.key), t = tempoCompat(melody.bpm, beat.bpm);
+    if (!k && !t) return null;
+    var score = k && t ? 0.6 * k.score + 0.4 * t.score : (k ? k.score : t.score) * 0.7;
+    return { score: score, key: k, tempo: t, partial: !(k && t) };
+  }
+
+  var api = {
+    PC: PC, keyLabel: keyLabel, keyName: keyName, estimateKey: estimateKey,
+    analyzeVoice: analyzeVoice, analyzeBeatAudio: analyzeBeatAudio,
+    parseMeta: parseMeta, keyCompat: keyCompat, tempoCompat: tempoCompat, scoreBeat: scoreBeat
+  };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.BeatAnalysis = api;
+})(typeof self !== 'undefined' ? self : this);
+</script>
+<script>(function () {
+  'use strict';
+  var A = window.BeatAnalysis;
+  var $ = function (id) { return document.getElementById(id); };
+
+  var state = { melodyWav: null, beats: [], recording: null, busy: false };
+
+  /* ---------- Capture micro (PCM brut) ---------- */
+  function startCapture(raw) {
+    return navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: !raw, noiseSuppression: !raw, autoGainControl: !raw, channelCount: 1
+      }
+    }).then(function (stream) {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      var ctx = new Ctx();
+      var src = ctx.createMediaStreamSource(stream);
+      var proc = ctx.createScriptProcessor(4096, 1, 1);
+      var chunks = [], level = 0;
+      proc.onaudioprocess = function (e) {
+        var d = new Float32Array(e.inputBuffer.getChannelData(0));
+        chunks.push(d);
+        var s = 0;
+        for (var i = 0; i < d.length; i++) s += d[i] * d[i];
+        level = Math.sqrt(s / d.length);
+      };
+      src.connect(proc);
+      proc.connect(ctx.destination);
+      return ctx.resume().then(function () {
+        return {
+          level: function () { return level; },
+          stop: function () {
+            proc.disconnect(); src.disconnect();
+            stream.getTracks().forEach(function (t) { t.stop(); });
+            var sr = ctx.sampleRate;
+            ctx.close();
+            var total = 0, i;
+            for (i = 0; i < chunks.length; i++) total += chunks[i].length;
+            var all = new Float32Array(total), o = 0;
+            for (i = 0; i < chunks.length; i++) { all.set(chunks[i], o); o += chunks[i].length; }
+            return { samples: all, sampleRate: sr };
+          }
+        };
+      });
+    });
+  }
+
+  function toWavUrl(samples, sr) {
+    var buf = new ArrayBuffer(44 + samples.length * 2), v = new DataView(buf), i;
+    function str(o, s) { for (var k = 0; k < s.length; k++) v.setUint8(o + k, s.charCodeAt(k)); }
+    str(0, 'RIFF'); v.setUint32(4, 36 + samples.length * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    str(36, 'data'); v.setUint32(40, samples.length * 2, true);
+    for (i = 0; i < samples.length; i++) {
+      var s = Math.max(-1, Math.min(1, samples[i]));
+      v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
+    return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+  }
+
+  function setStatus(id, text, kind) {
+    var el = $(id);
+    el.textContent = text || '';
+    el.dataset.kind = kind || '';
+  }
+
+  function nextFrame() { return new Promise(function (r) { setTimeout(r, 30); }); }
+
+  /* ---------- 1. Enregistrer la mélodie ---------- */
+  var MAX_SEC = 25, timer = null;
+
+  function fillKeyControls() {
+    var sel = $('tonic');
+    A.PC.forEach(function (n, i) {
+      var o = document.createElement('option');
+      o.value = i; o.textContent = n; sel.appendChild(o);
+    });
+  }
+
+  function meterLoop(rec, t0) {
+    var bar = $('meter-fill'), clock = $('clock');
+    timer = setInterval(function () {
+      var s = (Date.now() - t0) / 1000;
+      bar.style.width = Math.min(100, rec.level() * 400) + '%';
+      clock.textContent = s.toFixed(0) + ' s / ' + MAX_SEC + ' s';
+      if (s >= MAX_SEC) stopRecording();
+    }, 80);
+  }
+
+  function startRecording() {
+    if (state.busy) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setStatus('rec-status', 'Le micro n\'est pas disponible ici. Ouvre la page dans Chrome, à une adresse https.', 'error');
+      return;
+    }
+    setStatus('rec-status', 'Autorise le micro, puis chante.', '');
+    startCapture(false).then(function (rec) {
+      state.recording = rec;
+      $('rec').dataset.on = '1';
+      $('rec-label').textContent = 'Arrêter';
+      setStatus('rec-status', 'Je t\'écoute. Chante 10 à 20 secondes, sans musique derrière.', '');
+      meterLoop(rec, Date.now());
+    }).catch(function () {
+      setStatus('rec-status', 'Micro refusé. Autorise-le dans les réglages du navigateur et recommence.', 'error');
+    });
+  }
+
+  function stopRecording() {
+    clearInterval(timer);
+    var rec = state.recording;
+    if (!rec) return;
+    state.recording = null;
+    var out = rec.stop();
+    $('rec').dataset.on = '';
+    $('rec-label').textContent = 'Enregistrer ma mélodie';
+    $('meter-fill').style.width = '0%';
+    if (out.samples.length < out.sampleRate * 3) {
+      setStatus('rec-status', 'Trop court. Chante au moins 5 secondes.', 'error');
+      return;
+    }
+    setStatus('rec-status', 'Analyse en cours…', '');
+    nextFrame().then(function () {
+      var res = A.analyzeVoice(out.samples, out.sampleRate);
+      if (state.melodyWav) URL.revokeObjectURL(state.melodyWav);
+      state.melodyWav = toWavUrl(out.samples, out.sampleRate);
+      $('replay').src = state.melodyWav;
+      $('replay').hidden = false;
+      showMelody(res);
+    });
+  }
+
+  function showMelody(res) {
+    if (!res.key || res.voicedRatio < 0.15) {
+      setStatus('rec-status', 'Je n\'ai pas entendu assez de notes chantées. Rapproche-toi du micro et recommence.', 'error');
+      return;
+    }
+    $('tonic').value = res.key.tonic;
+    $('mode').value = res.key.mode;
+    if (res.bpm) $('bpm').value = Math.round(res.bpm);
+    var alt = res.key.alternatives.slice(0, 2).map(function (k) { return A.keyName(k.tonic, k.mode); }).join(', ');
+    $('alt').textContent = 'Autres possibilités : ' + alt + '.';
+    var weak = res.tempoStrength < 0.08;
+    setStatus('rec-status',
+      'Terminé. Vérifie la tonalité et le tempo ci-dessous' + (weak ? ' (le tempo est incertain, corrige-le si besoin).' : '.'),
+      'ok');
+  }
+
+  /* ---------- Tap tempo ---------- */
+  var taps = [];
+  function tap() {
+    var now = performance.now();
+    if (taps.length && now - taps[taps.length - 1] > 2000) taps = [];
+    taps.push(now);
+    if (taps.length > 8) taps.shift();
+    if (taps.length >= 3) {
+      var span = (taps[taps.length - 1] - taps[0]) / (taps.length - 1);
+      $('bpm').value = Math.round(60000 / span);
+    }
+  }
+
+  /* ---------- 2. Recherche YouTube (directement depuis le navigateur) ---------- */
+  function currentMelody() {
+    return {
+      key: { tonic: parseInt($('tonic').value, 10), mode: $('mode').value },
+      bpm: parseFloat($('bpm').value) || 0
+    };
+  }
+
+  function getKey() { try { return localStorage.getItem('yt_key') || ''; } catch (e) { return ''; } }
+  function saveKey(k) { try { localStorage.setItem('yt_key', k); } catch (e) {} }
+  function decodeHtml(s) { var t = document.createElement('textarea'); t.innerHTML = s || ''; return t.value; }
+
+  function ytError(j) {
+    var r = '';
+    try { r = j.error.errors[0].reason; } catch (e) {}
+    if (r === 'quotaExceeded') return 'Le quota gratuit YouTube du jour est épuisé. Il revient demain.';
+    if (r === 'keyInvalid' || r === 'badRequest') return 'La clé API YouTube est refusée. Vérifie qu\'elle est bien copiée en entier.';
+    if (r === 'accessNotConfigured' || r === 'forbidden' || r === 'ipRefererBlocked') return 'La clé n\'est pas autorisée : active « YouTube Data API v3 » et vérifie les restrictions de la clé.';
+    return 'Erreur YouTube' + (r ? ' : ' + r : '.');
+  }
+
+  function yt(endpoint, params) {
+    var qs = Object.keys(params).map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); }).join('&');
+    return fetch('https://www.googleapis.com/youtube/v3/' + endpoint + '?' + qs).then(function (r) {
+      return r.json().then(function (j) {
+        if (!r.ok) { var e = new Error(ytError(j)); e.friendly = true; throw e; }
+        return j;
+      });
+    });
+  }
+
+  function search() {
+    var m = currentMelody();
+    if (!m.bpm) { setStatus('search-status', 'Indique un tempo (BPM).', 'error'); return; }
+    var key = $('apikey').value.trim();
+    if (!key) { setStatus('search-status', 'Colle ta clé API YouTube dans le champ ci-dessus.', 'error'); return; }
+    saveKey(key);
+    var style = $('style').value.trim();
+    var kn = A.keyName(m.key.tonic, m.key.mode), kl = A.keyLabel(m.key.tonic, m.key.mode), b = Math.round(m.bpm);
+    var queries = [
+      (style + ' ' + kn + ' type beat ' + b + ' bpm').trim(),
+      (b + ' bpm ' + kl + ' ' + style + ' instrumental beat').trim()
+    ];
+    setStatus('search-status', 'Recherche sur YouTube…', '');
+    $('search').disabled = true;
+    Promise.all(queries.map(function (q) {
+      return yt('search', { part: 'id', type: 'video', q: q, maxResults: 15, videoEmbeddable: 'true', key: key });
+    })).then(function (rs) {
+      var ids = [], seen = {};
+      rs.forEach(function (r) {
+        (r.items || []).forEach(function (it) {
+          var id = it.id && it.id.videoId;
+          if (id && !seen[id]) { seen[id] = 1; ids.push(id); }
+        });
+      });
+      if (!ids.length) return [];
+      return yt('videos', { part: 'snippet', id: ids.slice(0, 50).join(','), key: key }).then(function (d) { return d.items || []; });
+    }).then(function (items) {
+      $('search').disabled = false;
+      state.beats = items.map(function (it) {
+        var sn = it.snippet, th = sn.thumbnails || {};
+        var title = decodeHtml(sn.title), desc = decodeHtml(sn.description || '');
+        return {
+          id: it.id, title: title, channel: decodeHtml(sn.channelTitle),
+          thumb: (th.medium || th.default || {}).url || '',
+          meta: A.parseMeta(title + ' \n ' + desc.slice(0, 1500)), heard: null
+        };
+      });
+      var known = state.beats.filter(function (x) { return x.meta.bpm || x.meta.key; }).length;
+      setStatus('search-status', state.beats.length + ' beats trouvés, ' + known + ' avec tonalité ou BPM écrits.', 'ok');
+      render();
+    }).catch(function (e) {
+      $('search').disabled = false;
+      setStatus('search-status', e.friendly ? e.message : 'Impossible de joindre YouTube. Vérifie ta connexion.', 'error');
+    });
+  }
+
+  /* ---------- 3. Résultats ---------- */
+  function effective(b) {
+    var heardKey = b.heard && b.heard.key ? { tonic: b.heard.key.tonic, mode: b.heard.key.mode } : null;
+    return {
+      key: heardKey || b.meta.key,
+      bpm: (b.heard && b.heard.bpm) || b.meta.bpm
+    };
+  }
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  function chip(text, kind) { return el('span', 'chip' + (kind ? ' ' + kind : ''), text); }
+
+  function render() {
+    var m = currentMelody();
+    var rows = state.beats.map(function (b) {
+      var eff = effective(b);
+      return { b: b, eff: eff, sc: A.scoreBeat(m, eff) };
+    });
+    rows.sort(function (x, y) {
+      var a = x.sc ? x.sc.score : -1, c = y.sc ? y.sc.score : -1;
+      return c - a;
+    });
+    var list = $('results');
+    list.textContent = '';
+    var first = true;
+    rows.forEach(function (r) {
+      var b = r.b, card = el('article', 'card');
+      if (r.sc && first && r.sc.score >= 0.5) { card.classList.add('best'); }
+      var top = el('div', 'card-top');
+      var th = el('img', 'thumb'); th.src = b.thumb; th.alt = ''; th.loading = 'lazy';
+      var info = el('div', 'info');
+      if (card.classList.contains('best')) info.appendChild(el('div', 'badge', 'Meilleur choix'));
+      first = false;
+      info.appendChild(el('h3', 'title', b.title));
+      info.appendChild(el('div', 'channel', b.channel));
+      top.appendChild(th); top.appendChild(info);
+
+      var scoreBox = el('div', 'score');
+      if (r.sc) {
+        scoreBox.appendChild(el('strong', '', Math.round(r.sc.score * 100) + '%'));
+        scoreBox.appendChild(el('span', '', 'compatible'));
+      } else {
+        scoreBox.appendChild(el('strong', '', '?'));
+        scoreBox.appendChild(el('span', '', 'à vérifier'));
+      }
+      top.appendChild(scoreBox);
+      card.appendChild(top);
+
+      var chips = el('div', 'chips');
+      var src = b.heard ? 'écouté' : 'titre';
+      if (r.eff.key) chips.appendChild(chip(A.keyName(r.eff.key.tonic, r.eff.key.mode) + ' · ' + src, b.heard ? 'heard' : ''));
+      else chips.appendChild(chip('tonalité inconnue', 'muted'));
+      if (r.eff.bpm) chips.appendChild(chip(Math.round(r.eff.bpm) + ' BPM · ' + src, b.heard ? 'heard' : ''));
+      else chips.appendChild(chip('BPM inconnu', 'muted'));
+      if (r.sc && r.sc.key) chips.appendChild(chip(r.sc.key.label, r.sc.key.score >= 0.6 ? 'good' : 'bad'));
+      if (r.sc && r.sc.tempo) chips.appendChild(chip(r.sc.tempo.label, r.sc.tempo.score >= 0.6 ? 'good' : 'bad'));
+      card.appendChild(chips);
+
+      var actions = el('div', 'actions');
+      var play = el('button', 'btn ghost', 'Écouter');
+      play.type = 'button';
+      var verify = el('button', 'btn ghost', 'Vérifier à l\'écoute');
+      verify.type = 'button';
+      var link = el('a', 'btn ghost', 'Ouvrir sur YouTube');
+      link.href = 'https://www.youtube.com/watch?v=' + b.id; link.target = '_blank'; link.rel = 'noopener';
+      actions.appendChild(play); actions.appendChild(verify); actions.appendChild(link);
+      card.appendChild(actions);
+
+      var holder = el('div', 'player'); holder.hidden = true;
+      var vstat = el('p', 'status small'); vstat.setAttribute('role', 'status');
+      card.appendChild(holder); card.appendChild(vstat);
+
+      play.addEventListener('click', function () {
+        if (holder.hidden) { openPlayer(holder, b.id, false); } else { holder.hidden = true; holder.textContent = ''; }
+      });
+      verify.addEventListener('click', function () { verifyBeat(b, holder, vstat, verify); });
+      list.appendChild(card);
+    });
+    $('results-section').hidden = false;
+  }
+
+  function openPlayer(holder, id, autoplay) {
+    holder.textContent = '';
+    var f = document.createElement('iframe');
+    f.src = 'https://www.youtube-nocookie.com/embed/' + id + '?rel=0&playsinline=1' + (autoplay ? '&autoplay=1' : '');
+    f.allow = 'autoplay; encrypted-media; picture-in-picture';
+    f.title = 'Lecteur YouTube';
+    holder.appendChild(f);
+    holder.hidden = false;
+  }
+
+  /* ---------- Vérification par l'écoute ---------- */
+  var LISTEN_SEC = 14, LEAD_SEC = 4;
+
+  /* Joue le beat, l'écoute au micro, mémorise tonalité et BPM. Résout {ok} ou {error}. */
+  function listenTo(b, holder, say) {
+    return new Promise(function (resolve) {
+      openPlayer(holder, b.id, true);
+      var left = LEAD_SEC;
+      say('Lecture du beat, ne fais pas de bruit (' + left + ' s).');
+      var lead = setInterval(function () {
+        left--;
+        if (left > 0) { say('Lecture du beat, ne fais pas de bruit (' + left + ' s).'); return; }
+        clearInterval(lead);
+        startCapture(true).then(function (rec) {
+          var t0 = Date.now();
+          var tick = setInterval(function () {
+            say('J\'écoute le beat… ' + Math.round((Date.now() - t0) / 1000) + ' s / ' + LISTEN_SEC + ' s');
+          }, 250);
+          setTimeout(function () {
+            clearInterval(tick);
+            var out = rec.stop();
+            say('Analyse…');
+            nextFrame().then(function () {
+              var res = A.analyzeBeatAudio(out.samples, out.sampleRate), rms = 0, i;
+              for (i = 0; i < out.samples.length; i += 16) rms += out.samples[i] * out.samples[i];
+              rms = Math.sqrt(rms / Math.max(1, out.samples.length / 16));
+              if (rms < 0.004 || !res.key) { resolve({ error: 'silence' }); return; }
+              b.heard = { key: res.key, bpm: res.bpm, strength: res.tempoStrength };
+              resolve({ ok: true });
+            });
+          }, LISTEN_SEC * 1000);
+        }).catch(function () { resolve({ error: 'mic' }); });
+      }, 1000);
+    });
+  }
+
+  var SILENCE_MSG = 'Je n\'ai rien entendu. Monte le volume, retire le casque et, si la vidéo ne démarre pas seule, appuie sur lecture dans le lecteur.';
+
+  function verifyBeat(b, holder, vstat, btn) {
+    if (state.busy) return;
+    state.busy = true;
+    btn.disabled = true;
+    vstat.dataset.kind = '';
+    listenTo(b, holder, function (t) { vstat.textContent = t; }).then(function (r) {
+      state.busy = false;
+      btn.disabled = false;
+      if (r.ok) { render(); return; }
+      vstat.dataset.kind = 'error';
+      vstat.textContent = r.error === 'mic' ? 'Micro refusé.' : SILENCE_MSG;
+    });
+  }
+
+  function verifyTop(n) {
+    if (state.busy || !state.beats.length) return;
+    var m = currentMelody();
+    var ranked = state.beats.map(function (b) {
+      var sc = A.scoreBeat(m, effective(b));
+      return { b: b, s: sc ? sc.score : -1 };
+    }).sort(function (x, y) { return y.s - x.s; });
+    var todo = ranked.filter(function (r) { return !r.b.heard; }).slice(0, n).map(function (r) { return r.b; });
+    if (!todo.length) { setStatus('batch-status', 'Les meilleurs beats sont déjà vérifiés.', 'ok'); return; }
+    state.busy = true;
+    $('verify-top').disabled = true;
+    var holder = $('batch-player'), i = 0, failed = 0;
+
+    function finish(msg, kind) {
+      state.busy = false;
+      $('verify-top').disabled = false;
+      holder.hidden = true; holder.textContent = '';
+      setStatus('batch-status', msg, kind);
+      render();
+    }
+    function next() {
+      if (i >= todo.length) {
+        finish(failed ? (todo.length - failed) + ' beats vérifiés, ' + failed + ' sans son détecté.' : 'Vérification terminée.', failed ? 'error' : 'ok');
+        return;
+      }
+      var b = todo[i++], tag = 'Beat ' + i + ' sur ' + todo.length + ' : ';
+      listenTo(b, holder, function (t) { setStatus('batch-status', tag + t, ''); }).then(function (r) {
+        if (r.error === 'mic') { finish('Micro refusé.', 'error'); return; }
+        if (r.error) failed++; else render();
+        next();
+      });
+    }
+    next();
+  }
+
+  /* ---------- Démarrage ---------- */
+  fillKeyControls();
+  $('rec').addEventListener('click', function () {
+    if (state.recording) stopRecording(); else startRecording();
+  });
+  $('tap').addEventListener('click', tap);
+  $('search').addEventListener('click', search);
+  $('verify-top').addEventListener('click', function () { verifyTop(5); });
+  $('apikey').value = getKey();
+  ['tonic', 'mode', 'bpm'].forEach(function (id) {
+    $(id).addEventListener('change', function () { if (state.beats.length) render(); });
+  });
+})();
+</script>
+</body>
+</html>
